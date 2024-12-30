@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black">
+    <meta name="apple-mobile-web-app-title" content="Amazon Analysis">
+    <title>Amazon Spending Analysis</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+    <link rel="apple-touch-icon" href="/api/placeholder/180/180">
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+            margin: 0;
+            padding: 16px;
+            background: #f5f5f7;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 {
+            text-align: center;
+            color: #1d1d1f;
+            margin-bottom: 24px;
+        }
+        .upload-zone {
+            background: #f5f5f7;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+            margin-bottom: 24px;
+        }
+        .chart-container {
+            margin-bottom: 24px;
+            height: 300px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 24px;
+        }
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #e5e5e5;
+        }
+        th {
+            background: #f5f5f7;
+            font-weight: 600;
+        }
+        .error {
+            color: #ff3b30;
+            text-align: center;
+            padding: 12px;
+            margin-bottom: 24px;
+        }
+        @media (max-width: 480px) {
+            .container {
+                padding: 12px;
+            }
+            th, td {
+                padding: 8px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Amazon Spending Analysis</h1>
+        <div class="upload-zone">
+            <input type="file" accept=".csv" id="fileInput" style="width: 100%; max-width: 300px;">
+        </div>
+        <div id="error" class="error" style="display: none;"></div>
+        <div class="chart-container">
+            <canvas id="spendingChart"></canvas>
+        </div>
+        <div style="overflow-x: auto;">
+            <table id="resultsTable">
+                <thead>
+                    <tr>
+                        <th>Category</th>
+                        <th>Total Spent</th>
+                        <th>Items</th>
+                        <th>Avg/Item</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        let chart = null;
+
+        document.getElementById('fileInput').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    processData(e.target.result);
+                };
+                reader.readAsText(file);
+            }
+        });
+
+        function processData(csv) {
+            try {
+                const rows = csv.split('\n').map(row => row.split(','));
+                const headers = rows[0];
+                
+                const categoryIdx = headers.findIndex(h => h.includes('Category'));
+                const priceIdx = headers.findIndex(h => h.includes('Item Total'));
+                
+                if (categoryIdx === -1 || priceIdx === -1) {
+                    throw new Error('Could not find required columns (Category and Item Total)');
+                }
+
+                const categories = {};
+                rows.slice(1).forEach(row => {
+                    if (row.length <= Math.max(categoryIdx, priceIdx)) return;
+                    
+                    const category = row[categoryIdx]?.trim() || 'Uncategorized';
+                    const priceStr = row[priceIdx]?.trim().replace('$', '').replace(',', '') || '0';
+                    const price = parseFloat(priceStr) || 0;
+                    
+                    if (!categories[category]) {
+                        categories[category] = { total: 0, count: 0 };
+                    }
+                    categories[category].total += price;
+                    categories[category].count += 1;
+                });
+
+                const results = Object.entries(categories)
+                    .map(([category, data]) => ({
+                        category,
+                        total: data.total.toFixed(2),
+                        count: data.count,
+                        average: (data.total / data.count).toFixed(2)
+                    }))
+                    .sort((a, b) => b.total - a.total);
+
+                displayResults(results);
+                document.getElementById('error').style.display = 'none';
+            } catch (err) {
+                document.getElementById('error').textContent = 'Error processing file. Please make sure it\'s a valid Amazon order history CSV.';
+                document.getElementById('error').style.display = 'block';
+                console.error(err);
+            }
+        }
+
+        function displayResults(results) {
+            // Update chart
+            if (chart) {
+                chart.destroy();
+            }
+
+            const ctx = document.getElementById('spendingChart').getContext('2d');
+            chart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: results.map(r => r.category),
+                    datasets: [{
+                        label: 'Total Spent ($)',
+                        data: results.map(r => r.total),
+                        backgroundColor: '#007AFF'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                callback: value => '$' + value
+                            }
+                        }
+                    }
+                }
+            });
+
+            // Update table
+            const tbody = document.querySelector('#resultsTable tbody');
+            tbody.innerHTML = results.map(item => `
+                <tr>
+                    <td>${item.category}</td>
+                    <td>$${item.total}</td>
+                    <td>${item.count}</td>
+                    <td>$${item.average}</td>
+                </tr>
+            `).join('');
+        }
+    </script>
+</body>
+</html>
